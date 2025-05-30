@@ -12,8 +12,11 @@
 import loguru
 import sys
 from awslabs.core_mcp_server.static import PROMPT_UNDERSTANDING
-from mcp.server.fastmcp import FastMCP
-from typing import List, TypedDict
+from fastmcp import Context, FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.utilities.mcp_config import MCPConfig, StdioMCPServer
+from mcp.server.session import ServerSession
+from typing import List, Literal, TypedDict
 
 
 class ContentItem(TypedDict):
@@ -69,6 +72,104 @@ async def get_prompt_understanding() -> str:
     ALWAYS Use this tool first to understand the user's query and translate it into AWS expert advice.
     """
     return PROMPT_UNDERSTANDING
+
+
+@mcp.tool()
+async def require_server(server_name: str, ctx: Context) -> Literal['Success']:
+    """Load the MCP server from awslabs.
+
+    Args:
+        server_name: the name of the server to be used. suggested by the tool `prompt_understanding`
+
+    Returns:
+        literal "Success" if the server is loaded successfully
+    """
+    try:
+        proxy_server = FastMCP.as_proxy(
+            MCPConfig(
+                mcpServers={
+                    server_name: StdioMCPServer(
+                        command='uvx',
+                        args=[server_name],
+                    )
+                }
+            )
+        )
+        mcp.mount(prefix='required', server=proxy_server, as_proxy=True)
+        session: ServerSession = ctx.session
+        await session.send_tool_list_changed()
+        return 'Success'
+    except Exception as e:
+        raise ToolError(f'Failed to require {server_name}. Error: {str(e)}')
+
+
+@mcp.tool()
+async def suggest_servers(keywords: list[str]) -> list[str]:
+    """Suggest MCP servers from keywords.
+
+    In order to use a server from the suggestions, you *must* load it using `require_server`.
+
+    Args:
+        keywords: keywords to match possible MCP servers
+
+    Returns:
+        Matched MCP servers as list of string
+    """
+    keywords_ = [kw.lower() for kw in keywords]
+    if 'eks' in keywords_:
+        return [
+            'awslabs.eks-mcp-server',
+            'awslabs.aws-serverless-mcp-server',
+        ]
+    if 'lambda' in keywords_:
+        return [
+            'awslabs.lambda-tool-mcp-server',
+            'awslabs.mcp-lambda-handler',
+        ]
+    if 'container' in keywords_:
+        return [
+            'awslabs.ecs-mcp-server',
+            'awslabs.finch-mcp-server',
+        ]
+
+    else:
+        # TODO: use a better way to find relevant servers
+        return [
+            'awslabs.amazon-kendra-index-mcp-server',
+            'awslabs.amazon-mq-mcp-server',
+            'awslabs.amazon-neptune-mcp-server',
+            'awslabs.amazon-sns-sqs-mcp-server',
+            'awslabs.aurora-dsql-mcp-server',
+            'awslabs.aws-diagram-mcp-server',
+            'awslabs.aws-documentation-mcp-server',
+            'awslabs.aws-location-mcp-server',
+            'awslabs.aws-serverless-mcp-server',
+            'awslabs.aws-support-mcp-server',
+            'awslabs.bedrock-kb-retrieval-mcp-server',
+            'awslabs.cdk-mcp-server',
+            'awslabs.cfn-mcp-server',
+            'awslabs.cloudwatch-logs-mcp-server',
+            'awslabs.code-doc-gen-mcp-server',
+            'awslabs.core-mcp-server',
+            'awslabs.cost-analysis-mcp-server',
+            'awslabs.documentdb-mcp-server',
+            'awslabs.dynamodb-mcp-server',
+            'awslabs.ecs-mcp-server',
+            'awslabs.eks-mcp-server',
+            'awslabs.finch-mcp-server',
+            'awslabs.frontend-mcp-server',
+            'awslabs.git-repo-research-mcp-server',
+            'awslabs.lambda-tool-mcp-server',
+            'awslabs.mcp-lambda-handler',
+            'awslabs.memcached-mcp-server',
+            'awslabs.mysql-mcp-server',
+            'awslabs.nova-canvas-mcp-server',
+            'awslabs.postgres-mcp-server',
+            'awslabs.stepfunctions-tool-mcp-server',
+            'awslabs.syntheticdata-mcp-server',
+            'awslabs.terraform-mcp-server',
+            'awslabs.valkey-mcp-server',
+        ]
 
 
 def main() -> None:
